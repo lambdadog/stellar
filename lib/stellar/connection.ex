@@ -59,6 +59,7 @@ defmodule Stellar.Connection do
           {:version, {ssh_version, _client_version} = version} ->
             Logger.debug("Client version: #{inspect(version)}")
 
+	    # Ensure compatible SSH version
             if ssh_version in ["2.0", "1.99"] do
               :ok = transport.send(socket, SSH.Protocol.version_string())
               :ok = transport.setopts(socket, active: :once)
@@ -72,7 +73,11 @@ defmodule Stellar.Connection do
             end
 
           _ ->
-            Logger.debug("Unexpected response: #{inspect(result)}")
+	    {
+	      :stop,
+	      {:unexpected_parse_return, result},
+	      %{state | protocol_state: p_state}
+	    }
         end
 
       {:continue, p_state} ->

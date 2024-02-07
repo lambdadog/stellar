@@ -38,14 +38,14 @@ defmodule Stellar.SSH.Protocol do
             {:ok, %{state | stage: :version_exchanged, prev: rest}, {:version, version}}
 
           :error ->
-            {:error, :bad_version}
+            {:error, :version_parse_failure}
         end
 
       nil ->
         {:continue, %{state | prev: rest}}
 
       _ ->
-        {:error, :bad_message}
+        {:error, :illegal_message_before_version_exchange}
     end
   end
 
