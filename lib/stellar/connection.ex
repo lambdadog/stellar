@@ -3,7 +3,8 @@ defmodule Stellar.Connection do
 
   use GenServer
 
-  import Logger
+  require Logger
+  alias Stellar.SSH, as: SSH
 
   # Technically untrue since we know we're using the :ranch_tcp
   # transport, but since ranch isn't designed that way...
@@ -12,6 +13,7 @@ defmodule Stellar.Connection do
   @type state :: [
           transport: module(),
           socket: socket(),
+          protocol_state: any(),
           timeout: timeout()
         ]
 
@@ -33,6 +35,7 @@ defmodule Stellar.Connection do
     state = %{
       transport: transport,
       socket: socket,
+      protocol_state: SSH.Protocol.init_state(),
       timeout: timeout
     }
 
@@ -46,25 +49,50 @@ defmodule Stellar.Connection do
         %{
           transport: transport,
           socket: socket,
+          protocol_state: p_state,
           timeout: timeout
         } = state
       ) do
-    :ok = transport.send(socket, data)
+    case SSH.Protocol.read(p_state, data) do
+      {:ok, p_state, result} ->
+        case result do
+          {:version, {ssh_version, _client_version} = version} ->
+            Logger.debug("Client version: #{inspect(version)}")
 
-    :ok = transport.setopts(socket, active: :once)
-    {:noreply, state, timeout}
+            if ssh_version in ["2.0", "1.99"] do
+              :ok = transport.send(socket, SSH.Protocol.version_string())
+              :ok = transport.setopts(socket, active: :once)
+              {:noreply, %{state | protocol_state: p_state}, timeout}
+            else
+              {
+                :stop,
+                {:incompatible_client_version, ssh_version},
+                %{state | protocol_state: p_state}
+              }
+            end
+
+          _ ->
+            Logger.debug("Unexpected response: #{inspect(result)}")
+        end
+
+      {:continue, p_state} ->
+        :ok = transport.setopts(socket, active: :once)
+        {:noreply, %{state | protocol_state: p_state}, timeout}
+
+      {:error, reason} ->
+        {:stop, reason, state}
+    end
   end
 
   @impl true
-  def handle_info(
-        message,
-        %{
-          transport: transport,
-          socket: socket
-        } = state
-      ) do
+  def handle_info(message, state) do
     Logger.debug("handle_info: #{inspect(message)}")
-    transport.close(socket)
     {:stop, :shutdown, state}
+  end
+
+  @impl true
+  def terminate(reason, %{transport: transport, socket: socket}) do
+    Logger.debug("terminating for reason: #{inspect(reason)}")
+    transport.close(socket)
   end
 end
