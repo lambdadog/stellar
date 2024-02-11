@@ -4,6 +4,8 @@ defmodule Stellar.Connection.Supervisor do
   use Supervisor
   @behaviour :ranch_protocol
 
+  require Logger
+
   @type options :: []
 
   @impl true
@@ -18,7 +20,7 @@ defmodule Stellar.Connection.Supervisor do
     {:ok, conn} =
       Supervisor.start_child(
         sup,
-        {Stellar.Connection, {ref, transport, conn_opts}}
+        {Stellar.Connection, [ref, transport, conn_opts]}
       )
 
     {:ok, sup, conn}

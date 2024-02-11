@@ -1,110 +1,184 @@
 defmodule Stellar.Connection do
-  @moduledoc false
-
-  use GenServer
+  @behaviour :gen_statem
 
   require Logger
-  alias Stellar.SSH, as: SSH
 
-  # Technically untrue since we know we're using the :ranch_tcp
-  # transport, but since ranch isn't designed that way...
-  @type socket :: any()
+  @crlf "\u000d\u000a"
+  @version_string "SSH-2.0-Stellar_0.1.0" <> @crlf
 
-  @type state :: [
-          transport: module(),
-          socket: socket(),
-          protocol_state: any(),
-          timeout: timeout()
-        ]
+  def child_spec(init_args),
+    do: %{id: __MODULE__, start: {__MODULE__, :start_link, init_args}}
 
-  def start_link(init_arg),
-    do: GenServer.start_link(__MODULE__, init_arg)
+  def start_link(ref, transport, opts),
+    do: {:ok, :proc_lib.spawn_link(__MODULE__, :init, [{ref, transport, opts}])}
 
-  # Handle SSH messages
-  def handle_ssh_message(
-        {:version, {ssh_version, _client_version} = version},
-        state
-      ) do
-    Logger.debug("Client version: #{inspect(version)}")
-
-    # Ensure compatible SSH version
-    if ssh_version in ["2.0", "1.99"] do
-      {:reply, SSH.Protocol.version_string(), state}
-    else
-      {:stop, {:incompatible_client_version, ssh_version}, state}
-    end
-  end
-
-  def handle_ssh_message(message, state),
-    do: {:stop, {:unexpected_ssh_message, message}, state}
-
-  # Impl
-
-  @impl true
-  def init({ref, transport, opts}),
-    # Socket is not ready until after continue.
-    do: {:ok, {}, {:continue, {ref, transport, opts}}}
-
-  @impl true
-  def handle_continue(
-        {ref, transport, %{timeout: timeout}},
-        _state
-      ) do
+  @impl :gen_statem
+  def init({ref, transport, _opts}) do
     {:ok, socket} = :ranch.handshake(ref)
 
-    state = %{
-      transport: transport,
-      socket: socket,
-      protocol_state: SSH.Protocol.init_state(),
-      timeout: timeout
+    state_data = %{
+      prev: nil
     }
 
     :ok = transport.setopts(socket, active: :once)
-    {:noreply, state, timeout}
+    :gen_statem.enter_loop(
+      __MODULE__,
+      [],
+      :version_exchange,
+      {state_data, socket, transport}
+    )
   end
 
-  @impl true
-  def handle_info(
-        {:tcp, socket, data},
-        %{
-          transport: transport,
-          socket: socket,
-          protocol_state: p_state,
-          timeout: timeout
-        } = state
-      ) do
-    case SSH.Protocol.read(p_state, data) do
-      {:ok, p_state, ssh_message} ->
-        res = handle_ssh_message(ssh_message, %{state | protocol_state: p_state})
+  @impl :gen_statem
+  def callback_mode,
+    do: [:state_functions, :state_enter]
 
-        case res do
-          {:reply, reply, state} ->
-            :ok = transport.send(socket, reply)
-            :ok = transport.setopts(socket, active: :once)
-            {:noreply, state, timeout}
+  def version_exchange(:enter, :version_exchange, state_data),
+    do: {:keep_state, state_data}
 
-          {:stop, reason, state} ->
-            {:stop, reason, state}
-        end
+  def version_exchange(:info, {:tcp_closed, _socket}, _state_data),
+    do: {:stop, :normal}
 
-      {:continue, p_state} ->
-        :ok = transport.setopts(socket, active: :once)
-        {:noreply, %{state | protocol_state: p_state}, timeout}
+  def version_exchange(:info, {:tcp_error, _, reason}, _state_data),
+    do: {:stop, reason}
 
-      {:error, reason} ->
-        {:stop, reason, state}
+  def version_exchange(
+    :info,
+    {:tcp, socket, message},
+    {%{prev: prev} = state_data, socket, transport}
+  ) do
+    # If we received a partial message previously, merge it with our
+    # current message.
+    message = if is_nil(prev) do message else prev <> message end
+
+    {message, rest} = if String.ends_with?(message, @crlf) do
+      {message, nil}
+    else
+      case String.split(message, @crlf, parts: 2) do
+	[message, rest] -> {message, rest}
+	[rest] -> {nil, rest}
+      end
+    end
+
+    state_data = %{state_data | prev: rest}
+
+    case message do
+      <<"SSH-", version_string::binary>> ->
+	case String.split(version_string, ["-", @crlf, " "], parts: 3) do
+	  [ssh_version, client_version, _] ->
+	    Logger.debug("SSH version: #{ssh_version}")
+	    Logger.debug("Client version: #{client_version}")
+
+	    if ssh_version in ["2.0", "1.99"] do
+	      # We wait until we receive a version message to reply,
+	      # to avoid giving away what type of service is running
+	      # on this socket.
+	      :ok = transport.send(socket, @version_string)
+	      :ok = transport.setopts(socket, active: :once)
+	      {
+		:next_state,
+		:key_exchange,
+		{state_data, socket, transport}
+	      }
+	    else
+	      {
+		:stop,
+		{:incompatible_client_version, ssh_version},
+		{state_data, socket, transport}
+	      }
+	    end
+	  _ ->
+	    {
+	      :stop,
+	      :version_parse_error,
+	      {state_data, socket, transport}
+	    }
+	end
+      nil ->
+	{:keep_state, {state_data, socket, transport}}
     end
   end
 
-  @impl true
-  def handle_info(message, state) do
-    Logger.debug("handle_info: #{inspect(message)}")
-    {:stop, :shutdown, state}
+  # TODO: improve
+  def version_exchange(event, msg, state_data) do
+    Logger.debug("Unhandled message during version_exchange")
+    Logger.debug("#{inspect event}\n#{inspect msg}\n#{inspect state_data}")
+
+    :keep_state_and_data
   end
 
-  @impl true
-  def terminate(reason, %{transport: transport, socket: socket}) do
-    Logger.debug("terminating for reason: #{inspect(reason)}")
-    transport.close(socket)
+  def key_exchange(
+    :enter,
+    :version_exchange,
+    {_state_data, socket, transport}
+  ) do
+    # TODO: handle remaining prev. I'm not sure if this will be a
+    # common issue in real ssh clients but it is possible as per the
+    # protocol to still have trailing data as the start of the next
+    # packet, I believe.
+
+    # TODO: go ahead and send my own kexinit, we don't need to wait on
+    # the client
+    state_data = %{
+      packet_length: nil,
+      prev: nil
+    }
+
+    {:keep_state, {state_data, socket, transport}}
+  end
+
+  def key_exchange(:info, {:tcp_closed, _socket}, _state_data),
+    do: {:stop, :normal}
+
+  def key_exchange(:info, {:tcp_error, _, reason}, _state_data),
+    do: {:stop, reason}
+
+  def key_exchange(
+    :info,
+    {:tcp, socket, message},
+    {%{packet_length: p_length, prev: prev} = state_data, socket, transport}
+  ) do
+    message = if is_nil(prev) do message else prev <> message end
+
+    {p_length, message} = if is_nil(p_length) do
+      case Stellar.Protocol.decode_packet_length(message) do
+	{:ok, p_length, rest} ->
+	  {p_length, rest}
+	:continue ->
+	  {nil, message}
+      end
+    else
+      {p_length, message}
+    end
+
+    # There's no Message Authentication algorithm at this point so
+    # there's no need to add the length of the MAC to the packet
+    # length, although if we generalized this code we probably would
+    # want to
+    if is_nil(p_length) or byte_size(message) < p_length do
+      :ok = transport.setopts(socket, active: :once)
+      {
+	:keep_state,
+	{
+	  %{state_data | packet_length: p_length, prev: message},
+	  socket,
+	  transport
+	}
+      }
+    else
+      {:ok, payload, _mac} = Stellar.Protocol.decode_packet(p_length, 0, message)
+
+      Logger.debug("payload: #{inspect String.chunk(payload, :printable)}")
+
+      # TODO: continue
+      {:stop, :normal}
+    end
+  end
+
+  def key_exchange(event, msg, state_data) do
+    Logger.debug("Unhandled message during key_exchange")
+    Logger.debug("#{inspect event}\n#{inspect msg}\n#{inspect state_data}")
+
+    :keep_state_and_data
   end
 end
