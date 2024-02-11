@@ -20,6 +20,26 @@ defmodule Stellar.Connection do
   def start_link(init_arg),
     do: GenServer.start_link(__MODULE__, init_arg)
 
+  # Handle SSH messages
+  def handle_ssh_message(
+        {:version, {ssh_version, _client_version} = version},
+        state
+      ) do
+    Logger.debug("Client version: #{inspect(version)}")
+
+    # Ensure compatible SSH version
+    if ssh_version in ["2.0", "1.99"] do
+      {:reply, SSH.Protocol.version_string(), state}
+    else
+      {:stop, {:incompatible_client_version, ssh_version}, state}
+    end
+  end
+
+  def handle_ssh_message(message, state),
+    do: {:stop, {:unexpected_ssh_message, message}, state}
+
+  # Impl
+
   @impl true
   def init({ref, transport, opts}),
     # Socket is not ready until after continue.
@@ -54,30 +74,17 @@ defmodule Stellar.Connection do
         } = state
       ) do
     case SSH.Protocol.read(p_state, data) do
-      {:ok, p_state, result} ->
-        case result do
-          {:version, {ssh_version, _client_version} = version} ->
-            Logger.debug("Client version: #{inspect(version)}")
+      {:ok, p_state, ssh_message} ->
+        res = handle_ssh_message(ssh_message, %{state | protocol_state: p_state})
 
-	    # Ensure compatible SSH version
-            if ssh_version in ["2.0", "1.99"] do
-              :ok = transport.send(socket, SSH.Protocol.version_string())
-              :ok = transport.setopts(socket, active: :once)
-              {:noreply, %{state | protocol_state: p_state}, timeout}
-            else
-              {
-                :stop,
-                {:incompatible_client_version, ssh_version},
-                %{state | protocol_state: p_state}
-              }
-            end
+        case res do
+          {:reply, reply, state} ->
+            :ok = transport.send(socket, reply)
+            :ok = transport.setopts(socket, active: :once)
+            {:noreply, state, timeout}
 
-          _ ->
-	    {
-	      :stop,
-	      {:unexpected_parse_return, result},
-	      %{state | protocol_state: p_state}
-	    }
+          {:stop, reason, state} ->
+            {:stop, reason, state}
         end
 
       {:continue, p_state} ->
