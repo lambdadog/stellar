@@ -168,7 +168,7 @@ defmodule Stellar.Connection do
     else
       {:ok, payload, _mac} = Stellar.Protocol.decode_packet(p_length, 0, message)
 
-      Logger.debug("payload: #{inspect String.chunk(payload, :printable)}")
+      Logger.debug("payload:\n#{inspect payload, pretty: true}")
 
       # TODO: continue
       {:stop, :normal}
