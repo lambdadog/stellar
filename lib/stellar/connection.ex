@@ -94,6 +94,7 @@ defmodule Stellar.Connection do
 	      {state_data, socket, transport}
 	    }
 	end
+
       nil ->
 	{:keep_state, {state_data, socket, transport}}
     end
@@ -112,13 +113,13 @@ defmodule Stellar.Connection do
     :version_exchange,
     {_state_data, socket, transport}
   ) do
-    # TODO: handle remaining prev. I'm not sure if this will be a
-    # common issue in real ssh clients but it is possible as per the
-    # protocol to still have trailing data as the start of the next
-    # packet, I believe.
+    # TODO: handle potential remaining prev. I'm not sure if this will
+    # be an issue with real ssh clients but it is possible (I believe)
+    # as per the protocol to still have trailing data as the start of
+    # the next packet, I believe?
 
-    # TODO: go ahead and send my own kexinit, we don't need to wait on
-    # the client
+    # TODO: go ahead and send our own kexinit, we don't need to wait
+    # on the client
     state_data = %{
       packet_length: nil,
       prev: nil
@@ -151,11 +152,12 @@ defmodule Stellar.Connection do
       {p_length, message}
     end
 
-    # There's no Message Authentication algorithm at this point so
-    # there's no need to add the length of the MAC to the packet
-    # length, although if we generalized this code we probably would
-    # want to
+    # There's no Message Authentication algorithm at this point (we
+    # are still negotiating that) so there's no need to add the length
+    # of the MAC to the packet length, although if we generalized this
+    # code we would want to
     if is_nil(p_length) or byte_size(message) < p_length do
+      # Wait for rest of packet
       :ok = transport.setopts(socket, active: :once)
       {
 	:keep_state,

@@ -1,6 +1,8 @@
 defmodule Stellar.Protocol do
   require Logger
-  # TODO: encryption
+
+  # TODO: implement encryption
+
   def decode_packet_length(data) do
     if byte_size(data) < 4 do
       :continue
@@ -56,7 +58,9 @@ defmodule Stellar.Protocol do
     {languages_s2c, rest} = decode_namelist(rest)
     {first_kex_packet_follows, rest} = decode_binary(rest)
 
-    <<_::integer-size(32)>> = rest
+    # Consume the rest of the packet, even if it's unused, so we can
+    # ensure we're reading the packet correctly.
+    <<0::integer-size(32)>> = rest
 
     {
       :kexinit,
