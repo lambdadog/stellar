@@ -20,7 +20,10 @@ defmodule Stellar.SSH.Protocol do
     do: "SSH-2.0-Stellar_0.1.0#{@crlf}"
 
   @spec read(state(), binary()) :: {:ok, state(), any()} | {:continue, state()} | {:error, any()}
-  def read(%{stage: :init, prev: nil} = state, data) do
+  def read(%{prev: prev} = state, data) when is_binary(prev),
+    do: read(%{state | prev: nil}, prev <> data)
+
+  def read(%{stage: :init} = state, data) do
     {msg, rest} =
       if String.ends_with?(data, @crlf) do
         {data, nil}
@@ -48,9 +51,6 @@ defmodule Stellar.SSH.Protocol do
         {:error, :illegal_message_before_version_exchange}
     end
   end
-
-  def read(%{prev: prev} = state, data) when is_binary(prev),
-    do: read(%{state | prev: nil}, prev <> data)
 
   def read(%{stage: stage}, _data) do
     {:error, {:unimplemented_stage, stage}}
