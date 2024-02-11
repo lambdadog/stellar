@@ -29,4 +29,12 @@ defmodule Stellar do
       module_opts
     )
   end
+
+  def run_devel do
+    children = [
+      child_spec(%{port: 8888, timeout: :infinity})
+    ]
+
+    Supervisor.start_link(children, strategy: :one_for_one)
+  end
 end
