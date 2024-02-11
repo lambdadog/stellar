@@ -4,9 +4,9 @@ defmodule Stellar do
   """
 
   @type options :: [
-          port: :inet.port_number(),
-          timeout: timeout()
-        ]
+    port: :inet.port_number(),
+    timeout: timeout()
+  ]
 
   @spec child_spec(options()) :: Supervisor.child_spec()
   def child_spec(%{port: port, timeout: timeout}) do
