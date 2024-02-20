@@ -84,15 +84,59 @@ defmodule Stellar.Protocol do
     }
   end
 
+  def encode_payload({:kexinit, data}) do
+    %{
+      cookie: cookie,
+      kex_algs: kex_algs,
+      server_hk_algs: server_hk_algs,
+      encryption_algs_c2s: encryption_algs_c2s,
+      encryption_algs_s2c: encryption_algs_s2c,
+      mac_algs_c2s: mac_algs_c2s,
+      mac_algs_s2c: mac_algs_s2c,
+      compression_algs_c2s: compression_algs_c2s,
+      compression_algs_s2c: compression_algs_s2c,
+      languages_c2s: languages_c2s,
+      languages_s2c: languages_s2c,
+      first_kex_packet_follows: first_kex_packet_follows
+    } = data
+
+    <<20>>
+    <> cookie
+    <> encode_namelist(kex_algs)
+    <> encode_namelist(server_hk_algs)
+    <> encode_namelist(encryption_algs_c2s)
+    <> encode_namelist(encryption_algs_s2c)
+    <> encode_namelist(mac_algs_c2s)
+    <> encode_namelist(mac_algs_s2c)
+    <> encode_namelist(compression_algs_c2s)
+    <> encode_namelist(compression_algs_s2c)
+    <> encode_namelist(languages_c2s)
+    <> encode_namelist(languages_s2c)
+    <> encode_boolean(first_kex_packet_follows)
+    <> <<0::integer-size(32)>>
+  end
+
   def decode_namelist(<<0::integer-size(32), rest::binary>>),
     do: {[], rest}
 
   def decode_namelist(<<l::integer-size(32), str::binary-size(l), rest::binary>>),
     do: {String.split(str, ","), rest}
 
+  def encode_namelist(namelist) do
+    str = Enum.join(namelist, ",")
+    <<byte_size(str)::integer-size(32)>> <> str
+  end
+
   def decode_boolean(<<1, rest::binary>>),
     do: {true, rest}
 
   def decode_boolean(<<0, rest::binary>>),
     do: {false, rest}
+
+  def encode_boolean(boolean) do
+    case boolean do
+      true -> <<1>>
+      false -> <<0>>
+    end
+  end
 end
