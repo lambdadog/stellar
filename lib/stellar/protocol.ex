@@ -45,7 +45,9 @@ defmodule Stellar.Protocol do
   # name-list    languages_server_to_client
   # boolean      first_kex_packet_follows
   # uint32       0 (reserved for future extension)
-  def decode_payload(<<20, cookie::binary-size(16), rest::binary>>) do
+  def decode_payload(<<20, rest::binary>>) do
+    <<cookie::binary-size(16), rest::binary>> = rest
+
     {kex_algs, rest} = decode_namelist(rest)
     {server_hk_algs, rest} = decode_namelist(rest)
     {encryption_algs_c2s, rest} = decode_namelist(rest)
@@ -56,7 +58,8 @@ defmodule Stellar.Protocol do
     {compression_algs_s2c, rest} = decode_namelist(rest)
     {languages_c2s, rest} = decode_namelist(rest)
     {languages_s2c, rest} = decode_namelist(rest)
-    {first_kex_packet_follows, rest} = decode_binary(rest)
+
+    {first_kex_packet_follows, rest} = decode_boolean(rest)
 
     # Consume the rest of the packet, even if it's unused, so we can
     # ensure we're reading the packet correctly.
@@ -87,9 +90,9 @@ defmodule Stellar.Protocol do
   def decode_namelist(<<l::integer-size(32), str::binary-size(l), rest::binary>>),
     do: {String.split(str, ","), rest}
 
-  def decode_binary(<<1, rest::binary>>),
+  def decode_boolean(<<1, rest::binary>>),
     do: {true, rest}
 
-  def decode_binary(<<0, rest::binary>>),
+  def decode_boolean(<<0, rest::binary>>),
     do: {false, rest}
 end
