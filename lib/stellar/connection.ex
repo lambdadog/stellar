@@ -7,7 +7,12 @@ defmodule Stellar.Connection do
   @version_string "SSH-2.0-Stellar_0.1.0" <> @crlf
 
   def child_spec(init_args),
-    do: %{id: __MODULE__, start: {__MODULE__, :start_link, init_args}}
+    do: %{
+	  id: __MODULE__,
+	  start: {__MODULE__, :start_link, init_args},
+	  restart: :temporary,
+	  significant: true
+    }
 
   def start_link(ref, transport, opts),
     do: {:ok, :proc_lib.spawn_link(__MODULE__, :init, [{ref, transport, opts}])}
@@ -73,6 +78,10 @@ defmodule Stellar.Connection do
 	      # We wait until we receive a version message to reply,
 	      # to avoid giving away what type of service is running
 	      # on this socket.
+
+	      # In theory this could break compatibility with a client
+	      # that waits on the server message to respond, but that
+	      # can be revisited if it becomes a problem.
 	      :ok = transport.send(socket, @version_string)
 	      :ok = transport.setopts(socket, active: :once)
 	      {
@@ -114,9 +123,9 @@ defmodule Stellar.Connection do
     {_state_data, socket, transport}
   ) do
     # TODO: handle potential remaining prev. I'm not sure if this will
-    # be an issue with real ssh clients but it is possible (I believe)
+    # be an issue with real ssh clients but it's possible (I believe?)
     # as per the protocol to still have trailing data as the start of
-    # the next packet, I believe?
+    # the next packet
 
     # TODO: go ahead and send our own kexinit, we don't need to wait
     # on the client

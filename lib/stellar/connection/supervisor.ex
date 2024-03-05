@@ -10,12 +10,16 @@ defmodule Stellar.Connection.Supervisor do
 
   @impl true
   @spec start_link(:ranch.ref(), module(), options()) :: Supervisor.on_start()
-  def start_link(ref, transport, %{timeout: timeout} = opts) do
+  def start_link(ref, transport, %{timeout: timeout} = _opts) do
     conn_opts = %{
       timeout: timeout
     }
 
-    {:ok, sup} = Supervisor.start_link(__MODULE__, opts)
+    {:ok, sup} = Supervisor.start_link(
+      __MODULE__,
+      strategy: :one_for_one,
+      auto_shutdown: :any_significant
+    )
 
     {:ok, conn} =
       Supervisor.start_child(
@@ -27,11 +31,9 @@ defmodule Stellar.Connection.Supervisor do
   end
 
   @impl true
-  def init(_opts) do
+  def init(opts) do
     children = []
 
-    # TODO: This supervisor should kill all children and die if the
-    # Stellar.Connection child dies
-    Supervisor.init(children, strategy: :one_for_one)
+    Supervisor.init(children, opts)
   end
 end
