@@ -120,12 +120,12 @@ defmodule Stellar.Connection do
   def key_exchange(
     :enter,
     :version_exchange,
-    {_state_data, socket, transport}
+    {_vex_data, socket, transport}
   ) do
-    # TODO: handle potential remaining prev. I'm not sure if this will
-    # be an issue with real ssh clients but it's possible (I believe?)
-    # as per the protocol to still have trailing data as the start of
-    # the next packet
+    # Intentionally discards old prev. If this causes issues then we
+    # can revisit it but Version Exchange and Key Exchange SHOULD be
+    # separate steps. Any client sending both at once is being a bit
+    # too clever.
 
     # TODO: go ahead and send our own kexinit, we don't need to wait
     # on the client
@@ -150,6 +150,7 @@ defmodule Stellar.Connection do
   ) do
     message = if is_nil(prev) do message else prev <> message end
 
+    # TODO: breakout
     {p_length, message} = if is_nil(p_length) do
       case Stellar.Protocol.decode_packet_length(message) do
 	{:ok, p_length, rest} ->
@@ -163,8 +164,8 @@ defmodule Stellar.Connection do
 
     # There's no Message Authentication algorithm at this point (we
     # are still negotiating that) so there's no need to add the length
-    # of the MAC to the packet length, although if we generalized this
-    # code we would want to
+    # of the MAC to the packet length, although if we generalize this
+    # code we will want to
     if is_nil(p_length) or byte_size(message) < p_length do
       # Wait for rest of packet
       :ok = transport.setopts(socket, active: :once)
