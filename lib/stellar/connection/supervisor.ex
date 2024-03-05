@@ -30,9 +30,8 @@ defmodule Stellar.Connection.Supervisor do
   def init(_opts) do
     children = []
 
-    # TODO: I want this supervisor to kill all children and die if the
-    # Stellar.Connection child dies, but I'm not sure how (or if ranch
-    # will do it automatically)
+    # TODO: This supervisor should kill all children and die if the
+    # Stellar.Connection child dies
     Supervisor.init(children, strategy: :one_for_one)
   end
 end
