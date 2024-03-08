@@ -40,9 +40,8 @@ defmodule Stellar.Connection do
   def handle_event(:info, {:tcp_error, _, reason}, _state, _state_data),
     do: {:stop, reason}
 
-  def handle_event(:enter, :version_exchange, :version_exchange, state_data) do
-    {:keep_state, state_data}
-  end
+  def handle_event(:enter, :version_exchange, :version_exchange, state_data),
+    do: {:keep_state, state_data}
 
   def handle_event(
     :info,
