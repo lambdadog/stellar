@@ -41,11 +41,6 @@ defmodule Stellar.Connection do
     do: {:stop, reason}
 
   def handle_event(:enter, :version_exchange, :version_exchange, state_data) do
-    {_, socket, transport} = state_data
-
-    {:ok, version_message} = SSHProto.encode_version("Stellar_0.1.0")
-    :ok = transport.send(socket, version_message)
-
     {:keep_state, state_data}
   end
 
@@ -60,6 +55,9 @@ defmodule Stellar.Connection do
     {:ok, client_version} = SSHProto.decode_version(message)
 
     Logger.debug("Client Version: #{client_version}")
+
+    {:ok, version_message} = SSHProto.encode_version("Stellar_0.1.0")
+    :ok = transport.send(socket, version_message)
 
     :ok = transport.setopts(socket, active: :once)
 
