@@ -31,6 +31,10 @@ defmodule Stellar do
   end
 
   def run_devel do
+    Mix.ensure_application! :wx
+    Mix.ensure_application! :observer
+    Mix.ensure_application! :runtime_tools
+
     children = [
       child_spec(%{port: 8888, timeout: :infinity})
     ]

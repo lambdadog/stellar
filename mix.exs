@@ -21,7 +21,8 @@ defmodule Stellar.MixProject do
   # Run "mix help deps" to learn about dependencies.
   defp deps do
     [
-      {:ranch, "~> 2.1"}
+      {:ranch, "~> 2.1"},
+      {:ssh_proto, path: "../ssh_proto"}
     ]
   end
 end
